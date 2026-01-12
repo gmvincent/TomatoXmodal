@@ -1,0 +1,25 @@
+# general configs
+root: "/home/gmvincen"
+out_path: "outputs"
+random_seed: 42
+print_freq: 5
+gpu: [6]
+dataparallel: False # multi-gpu training
+ddp: False
+
+cometml_project: "msi_3d_images"
+
+# data configs
+dataset_name: "voxel_images" # plantvillage, plantdoc, aichallenger
+
+# model configs
+model_name: "custom_net" # pytorch models supported
+pretrained: False
+mode: "None"
+
+# train configs
+lr: 0.01
+weight_decay: 0.000075
+batch_size: 2
+epochs: 100
+optimizer_name: "Adam"
