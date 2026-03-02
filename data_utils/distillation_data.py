@@ -4,6 +4,7 @@ import glob
 import torch
 from PIL import Image
 
+import trimesh
 from plyfile import PlyData
 from torch_geometric.data import Data, DataLoader
 
@@ -29,7 +30,7 @@ def load_ply(path):
         y = vertex_data['y']
         z = vertex_data['z']
 
-        mask = z > 5
+        mask = z > 6
         orig_idx = np.arange(len(z))
         new_idx = np.cumsum(mask) - 1
 
@@ -53,7 +54,7 @@ def load_ply(path):
 
         colors = [
             vertex_data[c][mask]
-            for c in ['red','green','blue','alpha']
+            for c in ['red','green','blue']
             if c in vertex_data.dtype.names
         ]
         if colors:
@@ -80,6 +81,7 @@ def load_ply(path):
     except Exception as e:
         print(f"Failed to load {path}: {e}")
         return None, None, None
+    
 
 def mesh_to_graph(verts, faces, features):
     """
@@ -96,6 +98,34 @@ def mesh_to_graph(verts, faces, features):
 
     return Data(x=x, edge_index=edge_index)
 
+def simplify_mesh(verts, faces, features, target_faces):
+    """
+    Simplify mesh to target face count while preserving vertex features.
+    """
+    if len(faces) <= target_faces:
+        return verts, faces, features
+
+    mesh = trimesh.Trimesh(
+        vertices=verts,
+        faces=faces,
+        process=False
+    )
+
+    simplified = mesh.simplify_quadratic_decimation(target_faces)
+
+    new_verts = simplified.vertices.astype(np.float32)
+    new_faces = simplified.faces.astype(np.int64)
+
+    # Map old vertex indices to new via nearest neighbor
+    from scipy.spatial import cKDTree
+    tree = cKDTree(verts)
+    _, idx = tree.query(new_verts, k=1)
+
+    new_features = features[idx]
+
+    return new_verts, new_faces, new_features
+
+
 class XModalDataset(torch.utils.data.Dataset):
     """
     Dataset for loading PLY meshes and preparing SpiralNet structures.
@@ -104,10 +134,14 @@ class XModalDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         root,
-         transform=None,
+        transform=None,
+        graph=False,
+        target_faces=None, 
     ):
+        self.graph = graph
         self.transform = transform
-
+        self.target_faces = target_faces
+        
         all_files = glob.glob(os.path.join(root, "**", "*.ply"), recursive=True)
         
         candidate_files = [
@@ -157,11 +191,22 @@ class XModalDataset(torch.utils.data.Dataset):
         img = torch.from_numpy(img)
         if img.shape[0] != 3:  # convert HWC to CHW
             img = img.permute(2, 0, 1)
+
+        # Swap R and B to fix channel order
+        img = img[[2, 1, 0], :, :]
         
         verts, faces, feats = load_ply(fp)
         label = int(os.path.basename(fp).split("_")[1].lstrip("T"))
 
-        data = mesh_to_graph(verts, faces, feats)       
+        
+        if self.target_faces is not None:
+            verts, faces, feats = simplify_mesh(
+                verts, faces, feats, self.target_faces
+            )
+        
+        if self.graph:
+            data = mesh_to_graph(verts, faces, feats)
+            data.y = torch.tensor(label, dtype=torch.long)
         
         if self.transform:
             img = self.transform(img)
