@@ -23,6 +23,10 @@ class FieldTomatoImages(torch.utils.data.Dataset):
         self.root = root
         self.transform = transform
         
+        stats = np.load("data_utils/ref_hist_stats.npz")
+        self.ref_bins = stats["bins"]
+        self.ref_cdfs = stats["cdfs"]
+        
         self.img_files = []
         self.labels = []
 
@@ -45,9 +49,12 @@ class FieldTomatoImages(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         img_path = self.img_files[idx]
         img = Image.open(img_path).convert("RGB")
-        img = transforms.functional.rotate(img, -90)
+        #img = transforms.functional.rotate(img, -90)
         
-        img = torch.from_numpy(np.array(img, dtype=np.float32) / 255.0)
+        img_np = np.array(img, dtype=np.float32) / 255.0
+        img_np = self._hist_matching(img_np)
+        
+        img = torch.from_numpy(img_np)
         img = img.permute(2, 0, 1)
 
         label = self.labels[idx]
@@ -56,3 +63,15 @@ class FieldTomatoImages(torch.utils.data.Dataset):
             img = self.transform(img)
 
         return img, label
+
+    def _hist_matching(self, img):
+        for c in range(img.shape[-1]):
+            src = img[..., c]
+
+            src_hist, _ = np.histogram(src, bins=self.ref_bins[c], density=True)
+            src_cdf = src_hist.cumsum()
+            src_cdf /= src_cdf[-1]
+
+            img[..., c] = np.interp(src, self.ref_bins[c], self.ref_cdfs[c])
+
+        return img
