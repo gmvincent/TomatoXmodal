@@ -62,7 +62,10 @@ class TomatoSideViewDataset(torch.utils.data.Dataset):
         img = Image.open(img_path).convert("RGB")
         img = torch.from_numpy(np.array(img, dtype=np.float32) / 255.0)
         img = img.permute(2, 0, 1)
-                
+        
+        # Swap R and B to fix channel order
+        img = img[[2, 1, 0], :, :]
+    
         if self.include_depth:
             d = self.depth_files[os.path.splitext(img_name)[0]]  # tensor
             img = torch.cat([img, d], dim=0)
