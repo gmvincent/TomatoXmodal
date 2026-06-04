@@ -64,6 +64,9 @@ class TomatoTask2D(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.img_files)
 
+    def get_label(self, idx: int) -> int:
+        return int(os.path.basename(self.img_files[idx]).split("_")[1].lstrip("T"))
+    
     def __getitem__(self, idx):
         img_name = self.img_files[idx]
         img_path = os.path.join(self.path, img_name)

@@ -41,6 +41,9 @@ class MorphologyDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.data)
 
+    def get_label(self, idx: int) -> int:
+        return self.labels[idx]
+    
     def __getitem__(self, idx):
         x = self.data[idx]
         y = self.labels[idx]

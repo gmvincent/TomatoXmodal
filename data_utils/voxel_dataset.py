@@ -4,7 +4,7 @@ import random
 import numpy as np
 import glob
 
-import scipy
+from tqdm import tqdm
 
 classes = {
     0: 'control',
@@ -27,12 +27,15 @@ class VoxelDataset(torch.utils.data.Dataset):
         self.transform = transform
 
         # Collect all voxel files
-        all_files = glob.glob(os.path.join(root, "**", "*.npy"), recursive=True)
+        all_files = sorted(glob.glob(os.path.join(root, "**", "*.ply"), recursive=True))
+
+        exclude_days=("DAI3")#, "DAI22", "DAI25", "DAI28")
+        
         voxel_files = [
             f for f in all_files
             if '3DRGBN' in os.path.basename(f)
             and not f.endswith("_dict.npy")
-            and not any(d in f for d in ["DAI22", "DAI25", "DAI28"])
+            and f.split("_")[2] not in exclude_days
         ]
 
         self.voxel_grids = []
@@ -40,10 +43,8 @@ class VoxelDataset(torch.utils.data.Dataset):
         self.scalar_paths = []
 
         # Load all voxels into RAM
-        for f in voxel_files:
+        for f in tqdm(voxel_files, desc="Loading Voxel Files", total=len(voxel_files), unit="file"):
             label = int(os.path.basename(f).split("_")[1].lstrip("T"))
-            if label == 1:
-                continue
 
             self.labels.append(label)
             voxel_grid = np.load(f).astype(np.float32)
@@ -56,6 +57,9 @@ class VoxelDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.labels)
 
+    def get_label(self, idx: int) -> int:
+        return self.labels[idx]
+    
     def __getitem__(self, idx):
         voxel_grid = self.voxel_grids[idx]
 

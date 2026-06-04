@@ -46,13 +46,16 @@ class FieldTomatoImages(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.img_files)
 
+    def get_label(self, idx: int) -> int:
+        return self.labels[idx]
+    
     def __getitem__(self, idx):
         img_path = self.img_files[idx]
         img = Image.open(img_path).convert("RGB")
         #img = transforms.functional.rotate(img, -90)
         
         img_np = np.array(img, dtype=np.float32) / 255.0
-        img_np = self._hist_matching(img_np)
+        #img_np = self._hist_matching(img_np)
         
         img = torch.from_numpy(img_np)
         img = img.permute(2, 0, 1)

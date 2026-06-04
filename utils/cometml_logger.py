@@ -109,18 +109,7 @@ def log_model_weights(args, experiment, model):
 def plot_distribution(args, experiment, dataloader, classes, mode):
     fig, ax = plt.subplots(figsize=(14, 11))
     
-    labels = []
-    for item in range(len(dataloader.dataset)):
-        _, label = dataloader.dataset[item]
-        
-        if label is not None:
-            if isinstance(label, torch.Tensor):
-                labels.append(label.item())   # tensor → python int
-            else:
-                labels.append(label)
-    if len(labels) == 0:  # Only concatenate if labels contain data
-        print(f"No labels found in {mode} dataloader")
-        return
+    labels = [dataloader.dataset.get_label(i) for i in range(len(dataloader.dataset))]
     
     label_counts = Counter(labels)
     freqs = [label_counts.get(i, 0) for i in range(args.num_classes)]
