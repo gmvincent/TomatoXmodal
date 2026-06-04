@@ -562,16 +562,15 @@ class DGNet(torch.nn.Module):
 
 
     def forward(self, data, return_features=False) -> torch.Tensor:
-        verts, spec_feats, faces, centers, normals, ring_1, ring_2, ring_3 = (
-            data["verts"],   # list of [V_i, 3] tensors
-            #data["vert_feats"],  # [B, 3, V_i]
-            data["face_feats"],   # [B, 3, F]
-            data["faces"],   # [B, F, 3]
-            data["centers"], # [B, 3, F]
-            data["normals"], # [B, 3, F]
-            data["ring_1"],  # [B, F, 3]
-            data["ring_2"],  # [B, F, 6]
-            data["ring_3"],  # [B, F, 12]
+        vert, spec_feats, faces, centers, normals, ring_1, ring_2, ring_3 = (
+            data["verts"],      # list of [V_i, 3] tensors
+            data["face_feats"], # [B, 3, F]
+            data["faces"],      # [B, F, 3]
+            data["centers"],    # [B, 3, F]
+            data["normals"],    # [B, 3, F]
+            data["ring_1"],     # [B, F, 3]
+            data["ring_2"],     # [B, F, 6]
+            data["ring_3"],     # [B, F, 12]
         )
         
         # Build per-face features: 

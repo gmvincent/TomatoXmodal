@@ -102,9 +102,8 @@ class MeshNet2(torch.nn.Module):
         Returns:
             cls: predicted class of the input mesh/es
         """
-        verts, vert_feats, face_feats, faces, centers, normals, ring_1, ring_2, ring_3 = (
+        verts, face_feats, faces, centers, normals, ring_1, ring_2, ring_3 = (
             data["verts"],        # list of [V_i, 3] tensors
-            data["vert_feats"],   # [B, V_i, 4]
             data["face_feats"],   # [B, F, 4]
             data["faces"],        # [B, F, 3]
             data["centers"],      # [B, 3, F]
