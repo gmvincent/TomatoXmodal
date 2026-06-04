@@ -25,8 +25,8 @@ def get_model(args, model_name):
     elif model_name == "point_net":
         model = PointNet2(
             num_class=args.num_classes,
-            in_channel=args.input_channels,
-            normal_channel=True,
+            in_channel=args.input_channels-3,
+            use_normals=True,
         )
     elif model_name == "spiral_net":
         model = SpiralClassifier(

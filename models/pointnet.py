@@ -17,18 +17,22 @@ import torch
 import torch.nn.functional as F
 
 class PointNet2(torch.nn.Module):
-    def __init__(self, num_class, in_channel=3, normal_channel=True):
+    def __init__(self, num_class, in_channel=3, use_normals=True):
         super(PointNet2, self).__init__()
-        #in_channel = 3 if normal_channel else 0
-        self.in_channel = in_channel
-        self.normal_channel = normal_channel
+
+        self.use_normals = use_normals
+        self.feature_dim = in_channel if use_normals else in_channel - 3 # exclude XYZ geometry, in_channels = spectral features + normals if included
         
-        in_channel_sa1 = in_channel + 3 if normal_channel else in_channel
+        SA1_MLPS = [[32, 32, 64], [64, 64, 128], [64, 96, 128]]
+        SA2_MLPS = [[64, 64, 128], [128, 128, 256], [128, 128, 256]]
+
+        sa1_out = sum([m[-1] for m in SA1_MLPS])
+        sa2_out = sum([m[-1] for m in SA2_MLPS])
         
         # point net abstraction layers
-        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [16, 32, 128], in_channel_sa1,[[32, 32, 64], [64, 64, 128], [64, 96, 128]])
-        self.sa2 = PointNetSetAbstractionMsg(128, [0.2, 0.4, 0.8], [32, 64, 128], 320,[[64, 64, 128], [128, 128, 256], [128, 128, 256]])
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
+        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [16, 32, 128], self.feature_dim, SA1_MLPS)
+        self.sa2 = PointNetSetAbstractionMsg(128, [0.2, 0.4, 0.8], [32, 64, 128], sa1_out, SA2_MLPS)        
+        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=sa2_out+3, mlp=[256, 512, 1024], group_all=True)
         
         self.fc1 = torch.nn.Linear(1024, 512)
         self.bn1 = torch.nn.BatchNorm1d(512)
@@ -41,15 +45,14 @@ class PointNet2(torch.nn.Module):
     def forward(self, xyz):
         B, _, _ = xyz.shape
         
-        assert xyz.shape[1] >= self.sa1.npoint, \
-            f"Input has {xyz.shape[1]} points but sa1 requires {self.sa1.npoint}"
-        
-        if self.normal_channel:
-            norm = xyz[:, -3:, :]        # last 3 channels for normals
-            xyz = xyz[:, :-3, :]   
+        xyz_coords = xyz[:, :3, :]
+
+        if self.use_normals:
+            features = xyz[:, 3:, :]
         else:
-            norm = None
-        l1_xyz, l1_points = self.sa1(xyz, norm)
+            features = None
+
+        l1_xyz, l1_points = self.sa1(xyz_coords, features)
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
         x = l3_points.view(B, 1024)
@@ -57,7 +60,6 @@ class PointNet2(torch.nn.Module):
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
         x = F.log_softmax(x, -1)
-
 
         return x #,l3_points
 
@@ -160,13 +162,25 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = new_xyz.shape
-    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
     sqrdists = square_distance(new_xyz, xyz)
-    group_idx[sqrdists > radius ** 2] = N
-    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
-    group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    mask = group_idx == N
-    group_idx[mask] = group_first[mask]
+    mask = sqrdists <= radius ** 2
+    
+    group_idx = torch.zeros((B, S, nsample), dtype=torch.long, device=device)
+    
+    for b in range(B):
+        for s in range(S):
+            valid_idx = torch.where(mask[b, s])[0]
+
+            if valid_idx.numel() == 0:
+                # fallback: self index (safe)
+                group_idx[b, s] = 0
+            elif valid_idx.numel() >= nsample:
+                group_idx[b, s] = valid_idx[:nsample]
+            else:
+                # pad with repeats
+                pad = valid_idx[torch.randint(0, valid_idx.numel(), (nsample - valid_idx.numel(),), device=device)]
+                group_idx[b, s] = torch.cat([valid_idx, pad])
+
     return group_idx
 
 
