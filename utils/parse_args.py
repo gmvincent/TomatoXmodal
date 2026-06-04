@@ -37,7 +37,7 @@ def parse_args(config=None, desc="Multi-Task", **kwargs):
         elif k == "gpu":
             # Avoid duplicate addition of the --gpu argument
             if not any(arg.dest == "gpu" for arg in parser._actions):
-                parser.add_argument(f"--{k}", default=v, type=list,  help="Comma-separated list of GPU IDs to use, e.g., '0,1,2'")
+                parser.add_argument(f"--{k}", default=v, type=str,  help="Comma-separated list of GPU IDs to use, e.g., '0,1,2'")
         else:
             parser.add_argument(f"--{k}", default=v, type=type(v))
     for k, v in kwargs.items():
@@ -53,7 +53,7 @@ def parse_args(config=None, desc="Multi-Task", **kwargs):
         "--master_addr", default="localhost", type=str, help="Address for the master process."
     )
     parser.add_argument(
-        "--master_port", default="12355", type=str, help="Port for the master process."
+        "--master_port", default="12345", type=str, help="Port for the master process."
     )
 
     # parse added arguments
@@ -82,9 +82,7 @@ def parse_args(config=None, desc="Multi-Task", **kwargs):
     if not args.world_size:
         args.world_size = len(args.gpu)
             
-    if args.ddp:
-        parser.add_argument("--port", default=str(find_free_port()))
-        args.master_port = find_free_port()
+    args.master_port = find_free_port()
         
     # Validate dataparallel or ddp and GPU arguments
     if args.dataparallel and len(args.gpu) < 2:
@@ -108,9 +106,9 @@ def find_free_port():
     # taken from https://github.com/ShigekiKarita/pytorch-distributed-slurm-example/blob/master/main_distributed.py
     import socket
 
-    s = socket.socket()
-    s.bind(("", 0))  # Bind to a free port provided by the host.
-    return s.getsockname()[1]  # Return the port number assigned.
+    with socket.socket() as s:
+        s.bind(("", 0))  # Bind to a free port provided by the host.
+        return s.getsockname()[1]  # Return the port number assigned.
 
 def setup_ddp(args, rank):
     """
@@ -120,20 +118,29 @@ def setup_ddp(args, rank):
     os.environ["MASTER_ADDR"] = args.master_addr
     os.environ["MASTER_PORT"] = str(args.master_port)
 
+    # Set the GPU device for this process
+    torch.cuda.set_device(args.gpu[rank])
+    
     # Initialize the process group
     dist.init_process_group(
             backend="nccl",  # Use NCCL for GPUs; use "gloo" for CPU
             init_method="env://",  # Initialize via environment variables
             world_size=args.world_size,
             rank=rank,
+            device_id=torch.device(f"cuda:{args.gpu[rank]}")
         )
-
-    # Set the GPU device for this process
-    torch.device(f"cuda:{args.gpu[rank]}")
     
 def cleanup_ddp():
     """
     Cleans up the process group for Distributed Data Parallel (DDP).
     """
-    dist.barrier()
-    dist.destroy_process_group()
+    if dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
+        
+def handle_sigterm(signum, frame):
+    print("Caught SIGTERM, cleaning up...")
+    if dist.is_initialized():
+        dist.destroy_process_group()
+    torch.cuda.empty_cache()
+    exit(0)
