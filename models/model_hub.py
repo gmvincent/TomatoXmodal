@@ -1,39 +1,73 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
+from torch.hub import download_url_to_file
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 
-from models.efficientnet_student import EfficientNetStudent
-from models.spiral_classifier import SpiralClassifier
+from models.dgnet import DGNet
 from models.mdc_gcn import MDC_GCN
+from models.meshnet import MeshNet2
+from models.pointnet import PointNet2
 from models.distillation import Distiller
+from models.spiral_classifier import SpiralClassifier
+from models.efficientnet_student import EfficientNetStudent
 
 def get_model(args, model_name):
     if model_name == "custom_net":
-        model = Simple3DCNN(num_classes=args.num_classes)
+        model = Simple3DCNN(
+            num_classes=args.num_classes,
+        )
+    elif model_name == "point_net":
+        model = PointNet2(
+            num_class=args.num_classes,
+            in_channel=args.input_channels,
+            normal_channel=True,
+        )
     elif model_name == "spiral_net":
         model = SpiralClassifier(
-            in_channels=4,                     # multispectral bands
+            in_channels=args.input_channels,   # multispectral bands
             channels=[32, 64, 128],            # spiral conv hierarchy
             num_classes=args.num_classes
         )
+    elif model_name == "mesh_net":
+        model = MeshNet2(
+            num_cls=args.num_classes,
+            num_faces=int(args.target_faces),
+            pool_rate=2,
+            include_spectral=False,
+        )
     elif model_name == "mdc_gcn":
         model = MDC_GCN(
-            in_channels=4,
-            num_classes=args.num_classes
-        )
-    elif model_name == "xmodal":
-        #teacher_model = get_model(args, "mdc_gcn")
-        teacher_model = MDC_GCN(
-            in_channels=4,
+            in_channels=args.input_channels, # 3 or 7
             num_classes=args.num_classes,
-            dc_config=[(32,3), (64,3)]
         )
-        teacher_weights = "/home/gmvincen/TomatoXmodal/outputs/mdc_gcn_teacher_weights_v2.pth"
-        state = torch.load(teacher_weights, map_location="cpu", weights_only=False)
+    elif model_name == "dgnet":
+        model = DGNet(
+            in_channels=args.input_channels, 
+            num_classes=args.num_classes,
+            include_spectral=True,
+        )
+    elif model_name == "mesh_clip":
+        model = -1
+    elif model_name == "xmodal":
+        teacher_model = get_model(args, "dgnet")
+        
+        if args.teacher_weights.startswith(('http://', 'https://')):
+            print(f"Downloading weights from {args.teacher_weights}...")
+            # Create a local filename from the URL
+            local_path = os.path.join("/home/gmvincen/TomatoXmodal/outputs", "temp_teacher_weights.pth")
+            if not os.path.exists(local_path):
+                download_url_to_file(args.teacher_weights, local_path)
+            
+            load_from = local_path
+        else:
+            load_from = args.teacher_weights
+        state = torch.load(load_from, map_location="cpu", weights_only=False)
 
         if "state_dict" in state:
             state = state["state_dict"]
@@ -42,10 +76,9 @@ def get_model(args, model_name):
         clean_state = {k.replace("module.", ""): v for k, v in state.items()}
 
         teacher_model.load_state_dict(clean_state, strict=False)
-
         student_model = EfficientNetStudent(num_classes=args.num_classes, pretrained=False, input_channels=3)
         
-        model = Distiller(teacher_model, student_model, device=args.device)
+        model = Distiller(teacher_model, student_model, device=args.device, alpha=args.alpha, beta=args.beta, feat_align=args.feat_align)
         
     elif model_name == "mlp":
         model = TabularNN(input_dim=args.input_channels, num_classes=args.num_classes)
@@ -134,20 +167,31 @@ class Simple3DCNN(nn.Module):
     def __init__(self, num_classes=3):
         super(Simple3DCNN, self).__init__()
         self.conv1 = nn.Conv3d(4, 32, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv3d(32, 32, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv3d(32, 8, kernel_size=3, padding=1)
-        self.pool = nn.AdaptiveAvgPool3d((4, 4, 4))
-        self.fc1 = nn.Linear(8 * 4 * 4 * 4, 128)
-        self.fc2 = nn.Linear(128, 16)
-        self.out = nn.Linear(16, num_classes)
+        self.conv2 = nn.Conv3d(32, 64, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv3d(64, 32, kernel_size=3, padding=1)
+        
+        self.bn1 = nn.BatchNorm3d(32)
+        self.bn2 = nn.BatchNorm3d(64)
+        self.bn3 = nn.BatchNorm3d(32)
+        
+        self.pool_mid  = nn.MaxPool3d(kernel_size=2, stride=2)
+        self.pool_glob = nn.AdaptiveAvgPool3d((2, 2, 2))
+        
+        self.fc1 = nn.Linear(32 * 2 * 2 * 2, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.out = nn.Linear(64, num_classes)
+        
+        self.dropout = nn.Dropout(p=0.5)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))  # -> [B, 32, W, H, D]
-        x = F.relu(self.conv2(x))  # -> [B, 32, W, H, D]
-        x = F.relu(self.conv3(x))  # -> [B, 8, W, H, D]
-        x = self.pool(x)           # -> [B, 8, 4, 4, 4]
+        x = self.pool_mid(F.relu(self.bn1(self.conv1(x))))
+        x = self.pool_mid(F.relu(self.bn2(self.conv2(x))))
+        
+        x = F.relu(self.bn3(self.conv3(x))) 
+        x = self.pool_glob(x)           
+        
         x = x.view(x.size(0), -1)  # flatten
-        x = F.relu(self.fc1(x))
+        x = self.dropout(F.relu(self.fc1(x)))
         x = F.relu(self.fc2(x))
         return self.out(x)
 
