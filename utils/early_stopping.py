@@ -1,10 +1,3 @@
-import os
-import torch
-
-import comet_ml
-from comet_ml.integration.pytorch import log_model
-
-
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=1e-4, save_best_model=True):
         """
@@ -21,12 +14,11 @@ class EarlyStopping:
         self.save_best_model = save_best_model
         self.best_weights = None
 
-    def __call__(self, val_loss, model, epoch, experiment):
+    def __call__(self, val_loss, model):
         if self.best_loss is None:
             self.best_loss = val_loss
             if self.save_best_model:
-                self.best_weights = model.state_dict()
-                #log_model(experiment, model, f"best_model_epoch{epoch}")
+                self.best_weights = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
         elif val_loss >= self.best_loss - self.min_delta:
             self.counter += 1
 
@@ -37,5 +29,4 @@ class EarlyStopping:
             self.best_loss = val_loss
             self.counter = 0
             if self.save_best_model:
-                self.best_weights = model.state_dict()
-                #log_model(experiment, model, f"best_model_epoch{epoch}")
+                self.best_weights = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
