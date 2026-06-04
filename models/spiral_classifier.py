@@ -58,8 +58,9 @@ class SpiralClassifier(torch.nn.Module):
         )
 
     def forward(self, x, spiral_indices, down_transform):
+        # x: [1, V, C]
         for i, block in enumerate(self.blocks):
-            s = spiral_indices[i]
+            s = spiral_indices[i]   # [V_i, seq_len]
             d = down_transform[i]
 
             assert x.size(1) == s.size(0), \
