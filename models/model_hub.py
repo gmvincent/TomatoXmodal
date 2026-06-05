@@ -10,6 +10,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 
 from models.dgnet import DGNet
+from models.dgcnn import DGCNN
 from models.mdc_gcn import MDC_GCN
 from models.meshnet import MeshNet2
 from models.pointnet import PointNet2
@@ -48,6 +49,18 @@ def get_model(args, model_name):
         )
     elif model_name == "dgnet":
         model = DGNet(
+            in_channels=args.input_channels, 
+            num_classes=args.num_classes,
+            include_spectral=True,
+            cls_dropouts = [0.3, 0.3],
+            encoder_channels=[16, 32, 64, 64],
+            decoder_channels=[64, 64, 32, 16],
+            dilations=[1, 1, 1],
+            radius=[0., 0.2, 0.4],
+            dropouts=[0., 0., 0.],
+        )
+    elif model_name == "dgcnn":
+        model = DGCNN(
             in_channels=args.input_channels, 
             num_classes=args.num_classes,
             include_spectral=True,
