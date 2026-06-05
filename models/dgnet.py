@@ -518,7 +518,7 @@ class DGNet(torch.nn.Module):
         assert self.depth == len(radius) == len(dilations) == len(dropouts)
 
         self.block1 = _MeshSequential(
-            MLP(in_channels, encoder_channels[0], with_bn=False),
+            MLP(in_channels, encoder_channels[0], with_bn=True),
             SpatialBlock(encoder_channels[0], encoder_channels[0]),
         )
 
