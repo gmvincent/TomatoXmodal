@@ -28,10 +28,10 @@ def initialize_metrics(args):
     def build_metrics(num_classes):
         metrics = {
             "Accuracy": torchmetrics.Accuracy(num_classes=num_classes, task="multiclass"),
-            #"F1": torchmetrics.F1Score(average="none", num_classes=num_classes, task="multiclass"),
-            "Recall_macro": torchmetrics.Recall(average="macro", num_classes=num_classes, task="multiclass"), # also called Sensitivity
-            "Precision_macro": torchmetrics.Precision(average="macro", num_classes=num_classes, task="multiclass"),
-            "Specificity_macro": torchmetrics.Specificity(average="macro", num_classes=num_classes, task="multiclass"),
+            "F1Score": torchmetrics.F1Score(average=None, num_classes=num_classes, task="multiclass"),
+            "Recall": torchmetrics.Recall(average=None, num_classes=num_classes, task="multiclass"),  # also called Sensitivity
+            "Precision": torchmetrics.Precision(average=None, num_classes=num_classes, task="multiclass"),
+            "Specificity": torchmetrics.Specificity(average=None, num_classes=num_classes, task="multiclass"),
             "F1_macro": torchmetrics.F1Score(average="macro", num_classes=num_classes, task="multiclass"),
             "MCC": torchmetrics.MatthewsCorrCoef(num_classes=num_classes, task="multiclass"),
             #"PredictionTime": PredictionTime(),
@@ -45,12 +45,19 @@ def initialize_metrics(args):
     val_metrics, test_metrics = train_metrics.clone(), train_metrics.clone()
     return train_metrics, val_metrics, test_metrics
 
-def log_metrics(experiment, metrics, loss, step, mode="train"):
-    for name, value in metrics.items():
-        val = value.compute()
-        experiment.log_metric(
-            f"{mode}/{name}", val.cpu().detach().numpy().tolist(), step=step
-        )
+def log_metrics(args, experiment, metrics, loss, step, mode="train"):
+    
+    def _log(key, val, task_classes):
+        val = val.cpu().detach()
+        if val.ndim > 0 and val.numel() > 1:
+            for i, v_ in enumerate(val):
+                experiment.log_metric(f"{key}_{task_classes[i]}", v_.item(), step=step)
+        else:
+            experiment.log_metric(key, val.item(), step=step)
+            
+    if metrics is not None:
+        for name, value in metrics.items():
+            _log(f"{mode}/{name}", value.compute(), args.classes)
 
     # Log loss (shared across tasks or single)
     experiment.log_metric(f"{mode}/loss", loss if loss is not None else 0, step=step)
