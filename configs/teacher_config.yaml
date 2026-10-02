@@ -1,0 +1,33 @@
+# general configs
+root: "/home/gmvincen"
+out_path: "outputs"
+random_seed: 42
+print_freq: 5
+gpu: 4,5,6,7
+dataparallel: False # multi-gpu training
+ddp: True
+
+cometml_project: "tomatotask_base"
+
+# data configs
+#dataset_name: "voxel_images" # plantvillage, plantdoc, aichallenger
+#target_faces: None
+#features: "rgbn"
+
+# model configs
+#model_name: "custom_net" # pytorch models supported
+pretrained: False
+mode: "None"
+
+# train configs
+lr: 0.05
+weight_decay: 0.0005
+batch_size: 16
+epochs: 250
+optimizer_name: "SGD"
+
+# distillation configs
+alpha: 0.5
+beta: 0.005
+teacher_weights: ""
+feat_align: "contrastive"

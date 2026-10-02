@@ -11,6 +11,8 @@ cometml_project: "msi_3d_images"
 
 # data configs
 dataset_name: "voxel_images" # plantvillage, plantdoc, aichallenger
+target_faces: None
+features: "rgbn"
 
 # model configs
 model_name: "custom_net" # pytorch models supported
@@ -23,3 +25,9 @@ weight_decay: 0.000075
 batch_size: 2
 epochs: 100
 optimizer_name: "Adam"
+
+# distillation configs
+alpha: 0.5
+beta: 0.005
+teacher_weights: ""
+feat_align: "contrastive"
