@@ -60,13 +60,13 @@ def log_experiment(
     if args.ddp and dist.get_rank() != 0:
         return  
     
-    log_metrics(experiment, metrics, loss, epoch, mode)
+    log_metrics(args, experiment, metrics, loss, epoch, mode)
     
     # log plots
     if (epoch >= args.epochs - 1) or (epoch % args.print_freq == 0):
- 
+        
         plot_confusion_matrix(args, experiment, y_true, y_pred, epoch, mode)
-        if (args.model_name not in ["svm", "rf", "spiral_net", "mdc_gcn", "custom_net", "point_net", "mesh_net", "dgnet"]) or (mode == "pred"):
+        if (args.model_name not in ["svm", "rf", "spiral_net", "mdc_gcn", "custom_net", "point_net", "mesh_net", "dgnet", "dgcnn"]) or (mode == "pred"):
             plot_cam(args, experiment, model, dataloader, step=epoch, mode=mode)
         
     if (epoch >= args.epochs - 1) and (mode == "test"):
@@ -75,8 +75,9 @@ def log_experiment(
             experiment.log_parameter(arg, value)
 
     if mode == "pred":
-        plot_predictions(args, experiment, model, dataloader, step=epoch, mode=mode)
-        plot_cam(args, experiment, model, dataloader, step=epoch, mode=mode)
+        cam_model = model.module if hasattr(model, "module") else model
+        plot_predictions(args, experiment, cam_model, dataloader, step=epoch, mode=mode)
+        plot_cam(args, experiment, cam_model, dataloader, step=epoch, mode=mode)
         
 def log_distill_metrics(args, experiment, loss, loss_ce, loss_kd, loss_feat, step, mode="train"):  
 
@@ -106,25 +107,25 @@ def log_model_weights(args, experiment, model):
 
     #experiment.log_parameter("num_flops", flops)
 
-def plot_distribution(args, experiment, dataloader, classes, mode):
+def plot_distribution(args, experiment, dataloader, mode):
+    ds = dataloader.dataset
+    indices = ds.indices if isinstance(ds, torch.utils.data.Subset) else range(len(ds))
+    base = ds.dataset if isinstance(ds, torch.utils.data.Subset) else ds
+
+    counts = Counter(base.get_label(i) for i in indices)
+    freqs = [counts.get(i, 0) for i in range(len(args.classes))]
+    
     fig, ax = plt.subplots(figsize=(14, 11))
-    
-    labels = [dataloader.dataset.get_label(i) for i in range(len(dataloader.dataset))]
-    
-    label_counts = Counter(labels)
-    freqs = [label_counts.get(i, 0) for i in range(args.num_classes)]
 
     # Bar plot with class names as x-axis ticks
     ax.bar(range(len(args.classes)), freqs, color="orchid")
     ax.set_xticks(range(len(args.classes)))
-    ax.set_xticklabels(args.classes, rotation=90, ha="right")
+    ax.set_xticklabels(args.classes, rotation=0, ha="center")
     ax.set_xlabel('')
     ax.set_ylabel('Frequency')
     
     # Log the plot to CometML
-    experiment.log_figure(
-        figure_name=f"{mode}/data_distribution", figure=plt.gcf()
-    )
+    experiment.log_figure(figure_name=f"{mode}/data_distribution", figure=fig)
     plt.close(fig)
     
 
