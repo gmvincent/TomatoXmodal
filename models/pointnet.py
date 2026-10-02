@@ -17,14 +17,12 @@ import torch
 import torch.nn.functional as F
 
 class PointNet2(torch.nn.Module):
-    def __init__(self, num_class, in_channel=3, use_normals=True):
+    def __init__(self, num_class, in_channel=3):
         super(PointNet2, self).__init__()
-
-        self.use_normals = use_normals
-        self.feature_dim = in_channel if use_normals else in_channel - 3 # exclude XYZ geometry, in_channels = spectral features + normals if included
+        self.feature_dim = in_channel # non-xyz channels: spectral (0/3/4) + normals (3)
         
-        SA1_MLPS = [[32, 32, 64], [64, 64, 128], [64, 96, 128]]
-        SA2_MLPS = [[64, 64, 128], [128, 128, 256], [128, 128, 256]]
+        SA1_MLPS = [[16, 16, 32], [32, 32, 64], [32, 48, 64]] 
+        SA2_MLPS = [[32, 32, 64], [64, 64, 128], [64, 64, 128]]
 
         sa1_out = sum([m[-1] for m in SA1_MLPS])
         sa2_out = sum([m[-1] for m in SA2_MLPS])
@@ -32,34 +30,31 @@ class PointNet2(torch.nn.Module):
         # point net abstraction layers
         self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [16, 32, 128], self.feature_dim, SA1_MLPS)
         self.sa2 = PointNetSetAbstractionMsg(128, [0.2, 0.4, 0.8], [32, 64, 128], sa1_out, SA2_MLPS)        
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=sa2_out+3, mlp=[256, 512, 1024], group_all=True)
+        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=sa2_out+3, mlp=[128, 256, 512], group_all=True)
         
-        self.fc1 = torch.nn.Linear(1024, 512)
-        self.bn1 = torch.nn.BatchNorm1d(512)
+        self.fc1 = torch.nn.Linear(512, 256)
+        self.bn1 = torch.nn.BatchNorm1d(256)
         self.drop1 = torch.nn.Dropout(0.4)
-        self.fc2 = torch.nn.Linear(512, 256)
-        self.bn2 = torch.nn.BatchNorm1d(256)
+        self.fc2 = torch.nn.Linear(256, 128)
+        self.bn2 = torch.nn.BatchNorm1d(128)
         self.drop2 = torch.nn.Dropout(0.5)
-        self.fc3 = torch.nn.Linear(256, num_class)
+        self.fc3 = torch.nn.Linear(128, num_class)
 
     def forward(self, xyz):
         B, _, _ = xyz.shape
         
         xyz_coords = xyz[:, :3, :]
 
-        if self.use_normals:
-            features = xyz[:, 3:, :]
-        else:
-            features = None
+        features = xyz[:, 3:, :] if self.feature_dim > 0 else None
 
         l1_xyz, l1_points = self.sa1(xyz_coords, features)
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        x = l3_points.view(B, 1024)
+        x = l3_points.view(B, 512)
         x = self.drop1(F.relu(self.bn1(self.fc1(x))))
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
-        x = F.log_softmax(x, -1)
+        #x = F.log_softmax(x, -1)
 
         return x #,l3_points
 
