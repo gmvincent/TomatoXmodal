@@ -64,12 +64,11 @@ def get_graph_feature(x, k=20, idx=None, xyz=None):
     return feature.permute(0, 3, 1, 2).contiguous()
 
 class DGCNN(torch.nn.Module):
-    def __init__(self, in_channels: int, num_classes: int, k: int=10, include_spectral: bool=True):
+    def __init__(self, in_channels: int, num_classes: int, k: int = 10):
         super(DGCNN, self).__init__()
         
         self.in_channels = in_channels
         self.num_classes = num_classes
-        self.include_spectral = include_spectral
         
         self.k = k # Num of nearest neighbors to use
         
@@ -102,17 +101,11 @@ class DGCNN(torch.nn.Module):
         self.dp2 = torch.nn.Dropout(p=0.5)
 
     def forward(self, x):
-        batch_size = x.size(0)
-        
-        if self.include_spectral and x.shape[1] > 3:
-            xyz = x[:, :3, :]      # geometry for graph structure
-            feats = x[:, 3:-3, :]    # spectral features
-        else:
-            xyz = x[:, :3, :]
-            feats = None
-        
-        
-        x = get_graph_feature(feats, k=self.k, xyz=xyz)
+        B = x.size(0)
+        xyz = x[:, :3, :] # geometry for graph structure
+
+        # graph on xyz; edge features from all channels (xyz + spectral + normals)
+        x = get_graph_feature(x, k=self.k, xyz=xyz)
         x = self.conv1(x)
         x1 = x.max(dim=-1, keepdim=False)[0]  # (B, 64, N)
 
@@ -127,8 +120,9 @@ class DGCNN(torch.nn.Module):
         x = torch.cat((x1, x2, x3), dim=1)    # (B, 256, N) — no x4
 
         x = self.conv4(x)                      # (B, 512, N)
-        x1 = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)  # (B, 512)
-        x2 = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)  # (B, 512)
+        #x1 = F.adaptive_max_pool1d(x, 1).view(B, -1) # (B, 512)
+        x1 = x.max(dim=-1, keepdim=False)[0]          # (B, 512) -> explicit max reduction for deterministic backwards pass
+        x2 = F.adaptive_avg_pool1d(x, 1).view(B, -1)  # (B, 512)
         x = torch.cat((x1, x2), dim=1)         # (B, 1024)
 
         x = F.leaky_relu(self.bn5(self.linear1(x)), negative_slope=0.2)
