@@ -19,6 +19,8 @@ from models.spiral_classifier import SpiralClassifier
 from models.efficientnet_student import EfficientNetStudent
 
 def get_model(args, model_name):
+    include_spectral = args.features != "geom"
+    
     if model_name == "custom_net":
         model = Simple3DCNN(
             num_classes=args.num_classes,
@@ -26,8 +28,7 @@ def get_model(args, model_name):
     elif model_name == "point_net":
         model = PointNet2(
             num_class=args.num_classes,
-            in_channel=args.input_channels-3,
-            use_normals=True,
+            in_channel=args.input_channels-3, # remove 3 normals
         )
     elif model_name == "spiral_net":
         model = SpiralClassifier(
@@ -40,30 +41,29 @@ def get_model(args, model_name):
             num_cls=args.num_classes,
             num_faces=int(args.target_faces),
             pool_rate=2,
-            include_spectral=False,
+            include_spectral=include_spectral,
+            spectral_channels=args.input_channels,
         )
     elif model_name == "mdc_gcn":
         model = MDC_GCN(
-            in_channels=args.input_channels, # 3 or 7
+            in_channels=args.input_channels, 
             num_classes=args.num_classes,
         )
     elif model_name == "dgnet":
         model = DGNet(
-            in_channels=args.input_channels, 
+            spectral_channels=args.input_channels, 
             num_classes=args.num_classes,
-            include_spectral=True,
             cls_dropouts = [0.3, 0.3],
-            encoder_channels=[16, 32, 64, 64],
-            decoder_channels=[64, 64, 32, 16],
-            dilations=[1, 1, 1],
-            radius=[0., 0.2, 0.4],
-            dropouts=[0., 0., 0.],
+            #encoder_channels=[16, 32, 64, 64],
+            #decoder_channels=[64, 64, 32, 16],
+            #dilations=[1, 1, 1],
+            #radius=[0., 0.2, 0.4],
+            #dropouts=[0., 0., 0.],
         )
     elif model_name == "dgcnn":
         model = DGCNN(
             in_channels=args.input_channels, 
             num_classes=args.num_classes,
-            include_spectral=True,
         )
     elif model_name == "mesh_clip":
         model = -1
