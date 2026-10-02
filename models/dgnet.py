@@ -485,7 +485,7 @@ class SpatialBlock(torch.nn.Module):
 
 class DGNet(torch.nn.Module):
     def __init__(self,
-                 in_channels: int = 16,
+                 spectral_channels: int = 0,     # 0 / 3 / 4
                  encoder_channels: list = None,
                  dilations: list = None,
                  radius: list = None,
@@ -496,8 +496,7 @@ class DGNet(torch.nn.Module):
                  temp_sample: int = 1000,
                  merge_op: str = "max",
                  use_pool: bool = False,
-                 num_classes: int = 4,
-                 include_spectral: bool = False):
+                 num_classes: int = 4):
         super().__init__()
 
         if encoder_channels is None:
@@ -509,8 +508,10 @@ class DGNet(torch.nn.Module):
         if radius is None:
             radius = [0., 0.2, 0.4, 0.8]
         if dropouts is None:
-            dropouts = [0., 0., 0., 0.]
-        self.include_spectral = include_spectral
+            dropouts = [0.5, 0.5, 0.5, 0.5]
+            
+        self.include_spectral = spectral_channels > 0
+        in_channels = 6 + spectral_channels      
         
         self.depth = len(encoder_channels) - 1
         assert len(encoder_channels) == len(decoder_channels)
@@ -518,7 +519,7 @@ class DGNet(torch.nn.Module):
         assert self.depth == len(radius) == len(dilations) == len(dropouts)
 
         self.block1 = _MeshSequential(
-            MLP(in_channels, encoder_channels[0], with_bn=True),
+            MLP(in_channels, encoder_channels[0], with_bn=True, dropout=dropouts[0]),
             SpatialBlock(encoder_channels[0], encoder_channels[0]),
         )
 
