@@ -15,7 +15,7 @@ from models.meshnet_helpers import ConvSurface, MeshBlock, MaxPoolFaceFeature
 
 class MeshNet2(torch.nn.Module):
     """ MeshNet++ Model"""
-    def __init__(self, num_faces, num_cls, pool_rate, num_kernel=64, blocks=[3, 4, 4], num_samples_per_neighbor=4, rs_mode="Weighted", conv_num_kernel=64, include_spectral=False):
+    def __init__(self, num_faces, num_cls, pool_rate, num_kernel=64, blocks=[3, 4, 4], num_samples_per_neighbor=4, rs_mode="Weighted", conv_num_kernel=64, include_spectral=False, spectral_channels=4):
         """
         Args:
             num_faces: number of mesh faces
@@ -25,11 +25,13 @@ class MeshNet2(torch.nn.Module):
         # Setup
         super(MeshNet2, self).__init__()
         self.pool_rate = pool_rate
+        self.eval_seed = 0
         self.include_spectral = include_spectral
         
         self.point_descriptor = PointDescriptor(num_kernel=num_kernel)
         self.normal_descriptor = NormalDescriptor(num_kernel=num_kernel)
-        self.spectral_descriptor = SpectralDescriptor(num_kernel=num_kernel)
+        if include_spectral:
+            self.spectral_descriptor = SpectralDescriptor(in_channels=spectral_channels, num_kernel=num_kernel)
         self.conv_surface_1 = ConvSurface(num_faces=num_faces, num_neighbor=3, num_samples_per_neighbor=num_samples_per_neighbor, rs_mode=rs_mode, num_kernel=conv_num_kernel)
         self.conv_surface_2 = ConvSurface(num_faces=num_faces, num_neighbor=6, num_samples_per_neighbor=num_samples_per_neighbor, rs_mode=rs_mode, num_kernel=conv_num_kernel)
         self.conv_surface_3 = ConvSurface(num_faces=num_faces, num_neighbor=12, num_samples_per_neighbor=num_samples_per_neighbor, rs_mode=rs_mode, num_kernel=conv_num_kernel)
@@ -154,7 +156,8 @@ class MeshNet2(torch.nn.Module):
         # Randomly select pooling indicies. Face indices not in pooling_idx will not be considered by
         # further layers.
         # Note: pooling_idx is same for all meshes and size of the orginal tensor does not change
-        pool_idx = torch.randperm(ring_2.shape[1])[:ring_2.shape[1]//self.pool_rate]
+        gen = None if self.training else torch.Generator().manual_seed(0)
+        pool_idx = torch.randperm(ring_2.shape[1], generator=gen)[:ring_2.shape[1] // self.pool_rate]
 
         # Sort the index for correct tensor re-assignment in PsuedoMeshBlock
         pool_idx, _ = torch.sort(pool_idx)
@@ -166,7 +169,7 @@ class MeshNet2(torch.nn.Module):
         fea = self.max_pool_fea_2(fea=fea, ring_n=ring_2)
 
         # Randomly subset pooling indicies from initial pool_idx
-        pool_idx_idx = torch.randperm(pool_idx.shape[0])[:pool_idx.shape[0]//self.pool_rate]
+        pool_idx_idx = torch.randperm(pool_idx.shape[0], generator=gen)[:pool_idx.shape[0] // self.pool_rate]
         pool_idx = pool_idx[pool_idx_idx]
         pool_idx, _ = torch.sort(pool_idx)
 

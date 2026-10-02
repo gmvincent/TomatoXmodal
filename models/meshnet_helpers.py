@@ -10,15 +10,16 @@ class SpectralDescriptor(torch.nn.Module):
     """
     r"Projects face spectral features into feature space by convolution
     """
-    def __init__(self, num_kernel=64):
+    def __init__(self, in_channels=4, num_kernel=64):
         """
         Args:
+            in_channels: number of spectral channels (3 for RGB, 4 for RGB+NIR)s
             num_kernel: dimension of feature space
         """
         super(SpectralDescriptor, self).__init__()
         self.num_kernel = num_kernel
         self.spectral_mlp = torch.nn.Sequential(
-            torch.nn.Conv1d(4, self.num_kernel, 1),
+            torch.nn.Conv1d(in_channels, self.num_kernel, 1),
             torch.nn.BatchNorm1d(self.num_kernel),
             torch.nn.ReLU(),
         )
@@ -27,11 +28,11 @@ class SpectralDescriptor(torch.nn.Module):
         """
         Args:
             feats: face spectral feautres
-            [num_meshes, num_faces, 3]
+            [num_meshes, in_channels, 3]
 
         Returns:
             mlp_feats: face spectral features in feature space
-            [num_meshes, num_faces, self.num_kernel]
+            [num_meshes, in_channels, self.num_kernel]
         """
         mlp_feats = self.spectral_mlp(feats)
         return mlp_feats
