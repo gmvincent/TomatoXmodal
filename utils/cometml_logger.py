@@ -37,7 +37,20 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn.manifo
 def create_experiment(args):
     now = datetime.datetime.now()
     
-    experiment_name = f"{args.model_name}_{args.dataset_name}_{now.strftime('%y%m%d%H%M')}"
+    if isinstance(args.task, list):
+        task = "_multi"
+    elif args.model_name == "xmodal": # TODO: make this the task and make the XModal model dynamic
+        task = ""
+    elif args.task == "classification":
+        task = "_clf"
+    elif args.task == "segmentation":
+        task = "_seg"
+    elif args.task == "regression":
+        task = "_reg"
+    else:
+        raise ValueError(f"Unrecognized args.task '{args.task}' and args.task is not a list.")
+    
+    experiment_name = f"{args.model_name}{task}_{args.dataset_name}_{now.strftime('%y%m%d%H%M')}"
 
     experiment = Experiment(
         api_key="6XqmAhuJUkx6wPhz0sdCRXwRz",
@@ -65,10 +78,15 @@ def log_experiment(
     # log plots
     if (epoch >= args.epochs - 1) or (epoch % args.print_freq == 0):
         
-        plot_confusion_matrix(args, experiment, y_true, y_pred, epoch, mode)
         if (args.model_name not in ["svm", "rf", "spiral_net", "mdc_gcn", "custom_net", "point_net", "mesh_net", "dgnet", "dgcnn"]) or (mode == "pred"):
             plot_cam(args, experiment, model, dataloader, step=epoch, mode=mode)
         
+        if args.task == "regression":
+            pred_v_actual(args, experiment, y_true, y_pred, epoch, mode)
+            plot_residual_histogram(args, experiment, y_true, y_pred, epoch, mode)
+        else:
+            plot_confusion_matrix(args, experiment, y_true, y_pred, epoch, mode)
+            
     if (epoch >= args.epochs - 1) and (mode == "test"):
         # Log Experiment Specific Args
         for arg, value in vars(args).items():
@@ -467,4 +485,52 @@ def visualize_domain_space(args, experiment, lab_feat, field_feat, lab_labels, f
 
     plt.tight_layout()
     experiment.log_figure(figure_name=f"domain_space", figure=fig)
+    plt.close(fig)
+    
+# prediction vs true plots
+def pred_v_actual(args, experiment, y_true, y_pred, step, mode):
+    true_t = y_true.detach().cpu()
+    pred_t = y_pred.detach().cpu()
+    
+    coefficients = np.polyfit(true_t, pred_t, 1)
+    line = np.poly1d(coefficients)
+
+    fig, ax = plt.subplots()
+    
+    ax.scatter(true_t, pred_t, label="Predictions", color="blue")
+    ax.plot(true_t, line(true_t), "r--")
+    ax.plot(
+        [min(args.classes), max(args.classes)], [min(args.classes), max(args.classes)],
+        color="gray", linestyle=":", label="Ideal Fit"
+        )
+
+    ax.set_xlabel("True Values")
+    ax.set_ylabel("Predicted Values")
+    
+    ax.set_xlim([min(args.classes), max(args.classes)])
+    ax.set_ylim([min(args.classes), max(args.classes)])
+    
+    plt.legend()
+    plt.grid(True)
+    
+    # Log the plot to CometML
+    experiment.log_figure(figure_name=f"{mode}/pred_vs_true", figure=plt.gcf(), step=step)
+    plt.close(fig)
+    
+
+def plot_residual_histogram(args, experiment, y_true, y_pred, step, mode):
+
+    true_t = y_true.detach().cpu()
+    pred_t = y_pred.detach().cpu()
+
+    residuals = true_t - pred_t
+    
+    fig, _ = plt.subplots()
+    plt.hist(residuals, bins=30, edgecolor="k", alpha=0.7, color="blue")
+    plt.xlabel("Residuals")
+    plt.ylabel("Frequency")
+    plt.title("Residuals Distribution")
+
+    # Log the plot to CometML
+    experiment.log_figure(figure_name=f"{mode}/residual_histogram", figure=plt.gcf(), step=step)
     plt.close(fig)
