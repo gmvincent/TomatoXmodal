@@ -218,7 +218,15 @@ class NeighborResampleWeighted(torch.nn.Module):
         #For loop is required since PyTorch cannot perform multinomial sampling on 3D distribution
         for idx in range(num_meshes):
             # Index of neighbor face to be duplicate
-            rs_idx = perimeter[idx].multinomial(num_samples, replacement=True)
+            neighbors = perimeter[idx]
+            rand_idx = torch.randint(
+                low=0,
+                high=neighbors.shape[-1],
+                size=(num_samples,),
+                device=neighbors.device,
+            )
+            rs_idx = neighbors[rand_idx]
+            #rs_idx = perimeter[idx].multinomial(num_samples, replacement=True)
             rs_ring_n[idx] = rs_idx
             #Expand tensor for advanced pytorch indexing
             rs_idx = rs_idx.unsqueeze(2)
