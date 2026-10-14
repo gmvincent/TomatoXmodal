@@ -29,17 +29,23 @@ def train_model(
 
         optimizer.zero_grad()
         output = model(*inputs)
-        
-        loss = criterion(output, labels)
-        
-        loss.backward()
-        optimizer.step()
 
         if args.task == "regression":
             output = output.squeeze(1)
             preds = output.detach()
         else:
             preds = output.argmax(dim=1)
+            
+        loss = criterion(output, labels)
+        loss.backward()
+        
+        if args.task == "regression":
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                max_norm=1.0,
+            )
+        
+        optimizer.step()
         
         running_loss += loss.item() * labels.size(0)
         running_samples += labels.size(0)
@@ -97,13 +103,14 @@ def test_model(
 
             output = model(*inputs)
             
-            loss = criterion(output, labels) 
             if args.task == "regression":
                 output = output.squeeze(1)
                 preds = output.detach()
             else:
                 preds = output.argmax(dim=1)
-                
+            
+            loss = criterion(output, labels) 
+            
             running_loss += loss.item() * labels.size(0)
             running_samples += labels.size(0)
             
