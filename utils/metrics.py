@@ -23,6 +23,48 @@ class PredictionTime(torchmetrics.Metric):
 
     def reset(self):
         super().reset()
+        
+class MulticlassNLL(torchmetrics.Metric):
+    """Mean negative log-likelihood (cross-entropy) of the true class, averaged per sample."""
+    full_state_update = False
+    higher_is_better = False
+    is_differentiable = False
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.add_state("total", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("count", default=torch.tensor(0), dist_reduce_fx="sum")
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        # log_softmax works for raw logits AND for log-probabilities, so either is safe
+        logp = preds.float().log_softmax(dim=1)
+        self.total += -logp.gather(1, target.long().view(-1, 1)).sum()
+        self.count += target.numel()
+
+    def compute(self) -> torch.Tensor:
+        return self.total / self.count
+
+
+class MulticlassBrier(torchmetrics.Metric):
+    """Multiclass Brier score: sum over classes of (p - onehot)^2, averaged per sample. Range [0, 2]."""
+    full_state_update = False
+    higher_is_better = False
+    is_differentiable = False
+
+    def __init__(self, num_classes: int, **kwargs):
+        super().__init__(**kwargs)
+        self.num_classes = num_classes
+        self.add_state("total", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("count", default=torch.tensor(0), dist_reduce_fx="sum")
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        probs = preds.float().softmax(dim=1)
+        onehot = torch.nn.functional.one_hot(target.long(), self.num_classes).float()
+        self.total += ((probs - onehot) ** 2).sum()
+        self.count += target.numel()
+
+    def compute(self) -> torch.Tensor:
+        return self.total / self.count
 
 def _build_classification_metrics(num_classes):
     return {
@@ -33,6 +75,10 @@ def _build_classification_metrics(num_classes):
         "Specificity": torchmetrics.Specificity(average=None, num_classes=num_classes, task="multiclass"),
         "F1_macro": torchmetrics.F1Score(average="macro", num_classes=num_classes, task="multiclass"),
         "MCC": torchmetrics.MatthewsCorrCoef(num_classes=num_classes, task="multiclass"),
+        # probability-quality metrics (require logits or log-probs, NOT argmax labels)
+        "NLL": MulticlassNLL(),
+        "Brier": MulticlassBrier(num_classes=num_classes),
+        "ECE": torchmetrics.CalibrationError(num_classes=num_classes, task="multiclass", n_bins=10, norm="l1"),
         #"PredictionTime": PredictionTime(),
     }
  
