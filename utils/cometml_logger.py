@@ -6,8 +6,10 @@ import os
 import cv2
 import torch
 import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
 import torch.nn.functional as F
 import numpy as np
+import pandas as pd
 from sklearn.manifold import TSNE
 import datetime
 from collections import Counter
@@ -92,6 +94,9 @@ def log_experiment(
         for arg, value in vars(args).items():
             experiment.log_parameter(arg, value)
 
+        if args.dataset_name in ["meshes", "graph_meshes", "pointclouds", "spirals"]:
+            plot_dai_results(args, experiment, dataloader, y_pred, y_true, step=epoch, mode=mode)
+            
     if mode == "pred":
         cam_model = model.module if hasattr(model, "module") else model
         plot_predictions(args, experiment, cam_model, dataloader, step=epoch, mode=mode)
@@ -130,7 +135,16 @@ def plot_distribution(args, experiment, dataloader, mode):
     indices = ds.indices if isinstance(ds, torch.utils.data.Subset) else range(len(ds))
     base = ds.dataset if isinstance(ds, torch.utils.data.Subset) else ds
 
-    counts = Counter(base.get_label(i) for i in indices)
+    if args.num_tasks == 1:
+        if args.task == "classification":
+            idx = 0
+        elif args.task == "regression":
+            idx = 1
+    counts = Counter(
+        (label[idx] if isinstance(label, tuple) else label)
+        for i in indices
+        for label in [base.get_label(i)]
+    )
     freqs = [counts.get(i, 0) for i in range(len(args.classes))]
     
     fig, ax = plt.subplots(figsize=(14, 11))
@@ -313,6 +327,48 @@ def plot_predictions(args, experiment, model, dataloader, step, mode, num_images
         experiment.log_figure(figure_name=f"{mode}/{class_name}_preds", figure=fig, step=step)
         plt.close(fig)
 
+
+def plot_dai_results(args, experiment, dataloader, y_pred, y_true, step, mode):
+    ds, s = dataloader.dataset, dataloader.sampler
+    
+    order = ([i for r in range(s.num_replicas)
+              for i in DistributedSampler(ds, s.num_replicas, r, shuffle=False, drop_last=s.drop_last)]
+             if isinstance(s, DistributedSampler) else range(len(ds)))
+    
+    base, idx = (ds.dataset, ds.indices) if isinstance(ds, torch.utils.data.Subset) else (ds, range(len(ds)))
+
+    df = pd.DataFrame([(base.get_dai(idx[i]), base.get_label(idx[i])) for i in order], columns=["dai", "label"])
+
+    y_true = np.asarray(y_true.cpu()).ravel()
+    y_pred = np.asarray(y_pred.cpu()).ravel()
+    assert (df.label.values == y_true).all(), "prediction order does not match dataset order"
+
+    df["correct"] = (y_pred == y_true).astype(float)
+    df["treatment"] = df.label.map(dict(enumerate(args.classes)))
+    
+    # per-dai accuracy
+    fig, ax = plt.subplots(figsize=(8,7))
+    
+    sns.pointplot(ax=ax, data=df, x="dai", y="correct", color="black", errorbar=("ci", 95), capsize=0.1)
+    ax.axhline(1 / len(args.classes), ls="--", color="gray")    
+    ax.set_xlabel("Days after inoculation")
+    ax.set_ylabel("Accuracy")
+    ax.set_ylim([0, 1.05])
+
+    plt.tight_layout()
+    experiment.log_figure(figure_name=f"{mode}/dai_accuracy", figure=fig, step=step)
+    plt.close(fig)
+    
+    # per-dai recall
+    fig, ax = plt.subplots(figsize=(8,7))
+    sns.pointplot(ax=ax, data=df, x="dai", y="correct", hue="treatment", dodge=0.3, errorbar=("ci", 95), capsize=0.05)
+    ax.set_xlabel("Days after inoculation")
+    ax.set_ylabel("Recall (per treatment)")
+    ax.set_ylim([0, 1.05])
+
+    plt.tight_layout()
+    experiment.log_figure(figure_name=f"{mode}/dai_recall", figure=fig, step=step)
+    plt.close(fig)
 
 def plot_cosine_similarity(args, experiment, t_feat, s_feat, step, mode):
     t_feat = F.normalize(t_feat, dim=1)
