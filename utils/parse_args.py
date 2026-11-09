@@ -25,6 +25,7 @@ def parse_args(config=None, desc="Multi-Task", **kwargs):
         "pretrained",
         "dataparallel",
         "ddp",
+        "augs",
     ]
     for k, v in config.items():
         if k == "config":  # already added config earlier, so skip
@@ -63,6 +64,21 @@ def parse_args(config=None, desc="Multi-Task", **kwargs):
             if v.lower() in ["yes", "no", "true", "false", "none"]:
                 exec(f'args.{k} = v.lower() in ["yes", "true"]')
     
+    # multi-task modeling is not supported
+    _num_tasks = int(args.num_tasks)
+    if _num_tasks != 1:
+        raise ValueError(f"Multi-task modeling is not supported. Expected num_tasks=1, got num_tasks='{args.num_tasks}'.")
+    
+    # normalize a single-element task list to a string
+    if isinstance(args.task, list):
+        if len(args.task) != 1:
+            raise ValueError(f"Single-task modeling requires exactly one task, but got {len(args.task)} tasks: {args.task}.")
+        args.task = args.task[0]
+
+    # validate task name
+    _valid_tasks = {"classification", "regression"}
+    if args.task not in _valid_tasks:
+        raise ValueError(f"Unsupported task '{args.task}'. Use one of: {sorted(_valid_tasks)}.")
 
     # Ensure output path exists
     if not os.path.exists(args.out_path):
