@@ -94,7 +94,7 @@ def log_experiment(
         for arg, value in vars(args).items():
             experiment.log_parameter(arg, value)
 
-        if args.dataset_name in ["meshes", "graph_meshes", "pointclouds", "spirals"]:
+        if args.dataset_name in ["meshes", "graph_meshes", "pointclouds", "spirals", "xmodal_features"]:
             plot_dai_results(args, experiment, dataloader, y_pred, y_true, step=epoch, mode=mode)
             
     if mode == "pred":
@@ -201,9 +201,9 @@ def plot_cam(args, experiment, model, dataloader, step, mode, num_images=4):
     
     data_iter = iter(dataloader)
     if args.dataset_name == "xmodal_features":
-        meshes, inputs, labels = next(data_iter)
-        inputs = torch.stack(inputs)
-        labels = torch.tensor(labels)
+        from utils.train_cmkd_utils import prepare_batch
+        _, images, labels = prepare_batch(args, next(data_iter))
+        inputs, depth, c_mask = images
     else:
         inputs, labels = next(data_iter)
     
