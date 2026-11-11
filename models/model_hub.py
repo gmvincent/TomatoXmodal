@@ -16,7 +16,8 @@ from models.meshnet import MeshNet2
 from models.pointnet import PointNet2
 from models.distillation import Distiller
 from models.spiral_classifier import SpiralClassifier
-from models.efficientnet_student import EfficientNetStudent
+from models.distill_utils.student_model import EfficientNetStudent, MobileNetV2Student
+from models.distill_utils.extended_distillation import ExtendedDistiller, PrivilegedConfig, DenseConfig
 
 def get_model(args, model_name):
     include_spectral = args.features != "geom"
@@ -54,7 +55,8 @@ def get_model(args, model_name):
         model = DGNet(
             spectral_channels=args.input_channels, 
             num_classes=classes,
-            cls_dropouts = [0.3, 0.3],
+            #cls_dropouts = [0.3, 0.3],
+            head_dropouts=0.3,
         )
     elif model_name == "dgcnn":
         model = DGCNN(
@@ -64,7 +66,7 @@ def get_model(args, model_name):
     elif model_name == "mesh_clip":
         model = -1
     elif model_name == "xmodal":
-        teacher_model = get_model(args, "dgnet")
+        teacher_model = get_model(args, "mdc_gcn")
         
         if args.teacher_weights.startswith(('http://', 'https://')):
             print(f"Downloading weights from {args.teacher_weights}...")
@@ -85,10 +87,19 @@ def get_model(args, model_name):
         clean_state = {k.replace("module.", ""): v for k, v in state.items()}
 
         teacher_model.load_state_dict(clean_state, strict=False)
-        student_model = EfficientNetStudent(num_classes=args.num_classes, pretrained=False, input_channels=3)
+        student_model = MobileNetV2Student(num_classes=args.num_classes, pretrained=False, input_channels=3) 
+        #EfficientNetStudent(num_classes=args.num_classes, pretrained=False, input_channels=3), Ds=1792
         
-        model = Distiller(teacher_model, student_model, device=args.device, alpha=args.alpha, beta=args.beta, feat_align=args.feat_align)
+        model = Distiller(teacher_model, student_model, Ds=1280, device=args.device, alpha=args.alpha, beta=args.beta, feat_align=args.feat_align)
+    elif model_name in ["priv_xmodal", "dense_xmodal", "priv_dense_xmodal"]:
+        model = get_model(args, "xmodal") 
         
+        pcfg = PrivilegedConfig() if model_name.startswith("priv") else None
+        dcfg = DenseConfig(pairing=[(2, 2), (3, 3), (4, 4)], teacher_level_dims=[48, 128], warmup_epochs=2,
+                        max_student_tokens=100, max_teacher_nodes=64) if "dense" in model_name else None
+        
+        model = ExtendedDistiller(model, dense=dcfg, privileged=pcfg)
+                
     elif model_name == "mlp":
         model = TabularNN(input_dim=args.input_channels, num_classes=args.num_classes)
     elif model_name == "svm":
